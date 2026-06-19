@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 
 asyncio.set_event_loop(asyncio.new_event_loop())
 
@@ -7,7 +8,6 @@ from pyrogram import Client, filters, idle
 from pyrogram.enums import ParseMode
 from pyrogram.errors import FloodWait, UserIsBlocked
 
-import config
 import keyboards
 import database
 
@@ -29,11 +29,76 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def load_env_file(path: str = ".env"):
+    if not os.path.exists(path):
+        return
+
+    with open(path, encoding="utf-8") as env_file:
+        for line_number, raw_line in enumerate(env_file, start=1):
+            line = raw_line.strip()
+
+            if not line or line.startswith("#"):
+                continue
+
+            if line.startswith("export "):
+                line = line.removeprefix("export ").strip()
+
+            if "=" not in line:
+                raise RuntimeError(
+                    f"Invalid .env line {line_number}: expected KEY=VALUE."
+                )
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+
+            if not key:
+                raise RuntimeError(
+                    f"Invalid .env line {line_number}: missing key."
+                )
+
+            if (
+                len(value) >= 2
+                and value[0] == value[-1]
+                and value[0] in ("'", '"')
+            ):
+                value = value[1:-1]
+
+            os.environ.setdefault(key, value)
+
+
+def get_required_env(name: str) -> str:
+    value = os.environ.get(name)
+
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+
+    return value
+
+
+def get_required_int_env(name: str) -> int:
+    value = get_required_env(name)
+
+    try:
+        return int(value)
+    except ValueError as error:
+        raise RuntimeError(
+            f"Environment variable {name} must be an integer."
+        ) from error
+
+
+load_env_file()
+
+telegram_api_id = get_required_int_env("TELEGRAM_API_ID")
+telegram_api_hash = get_required_env("TELEGRAM_API_HASH")
+telegram_bot_token = get_required_env("TELEGRAM_BOT_TOKEN")
+
+
 bot = Client(
     name="DemonList",
-    api_id=config.api_id,
-    api_hash=config.api_hash,
-    bot_token=config.bot_token
+    api_id=telegram_api_id,
+    api_hash=telegram_api_hash,
+    bot_token=telegram_bot_token
 )
 
 
