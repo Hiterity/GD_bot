@@ -2,3 +2,10 @@ config.py
 __pycache__
 .idea
 .env
+.venv
+*.session
+*.session-journal
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3

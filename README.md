@@ -134,6 +134,12 @@ Make sure the deployment environment provides `TELEGRAM_API_ID`,
 local development, the bot also loads these values from a `.env` file in the
 project root.
 
+Do not deploy `DemonList.session`, `DemonList.session-journal`, or local
+database files. They are runtime artifacts and are ignored by `.gitignore`.
+If Railway reports `AUTH_KEY_DUPLICATED`, delete any deployed session files,
+commit their removal, and redeploy so Pyrogram can create a fresh session from
+`TELEGRAM_BOT_TOKEN`.
+
 ## Project Structure
 
 | File | Purpose |
