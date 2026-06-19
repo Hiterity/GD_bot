@@ -98,7 +98,8 @@ bot = Client(
     name="DemonList",
     api_id=telegram_api_id,
     api_hash=telegram_api_hash,
-    bot_token=telegram_bot_token
+    bot_token=telegram_bot_token,
+    in_memory=True
 )
 
 

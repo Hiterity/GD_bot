@@ -140,6 +140,9 @@ If Railway reports `AUTH_KEY_DUPLICATED`, delete any deployed session files,
 commit their removal, and redeploy so Pyrogram can create a fresh session from
 `TELEGRAM_BOT_TOKEN`.
 
+This bot runs Pyrogram with an in-memory bot session, which is safer for
+container platforms because it does not need to persist `DemonList.session`.
+
 ## Project Structure
 
 | File | Purpose |
