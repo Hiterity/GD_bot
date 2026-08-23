@@ -47,6 +47,7 @@ def create_tables():
         connection.commit()
 
     create_notification_tables()
+    create_agent_tables()
 
 
 def get_today_string():
@@ -346,3 +347,142 @@ def get_demonlist_snapshot():
         return json.loads(row[0])
     except json.JSONDecodeError:
         return None
+
+
+def create_agent_tables():
+    with connect() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id INTEGER NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_ai_chat_messages_user_time
+            ON ai_chat_messages (telegram_id, created_at, id)
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS demonlist_update_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                summary TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        cursor.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_demonlist_update_events_time
+            ON demonlist_update_events (created_at, id)
+            """
+        )
+
+        connection.commit()
+
+
+def add_ai_chat_message(telegram_id: int, role: str, content: str):
+    with connect() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO ai_chat_messages (telegram_id, role, content)
+            VALUES (?, ?, ?)
+            """,
+            (telegram_id, role, content)
+        )
+
+        connection.commit()
+
+
+def get_ai_chat_history(telegram_id: int, limit: int = 20):
+    with connect() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT role, content
+            FROM ai_chat_messages
+            WHERE telegram_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (telegram_id, limit)
+        )
+
+        rows = cursor.fetchall()
+
+    return [
+        {
+            "role": row[0],
+            "content": row[1]
+        }
+        for row in reversed(rows)
+    ]
+
+
+def clear_ai_chat_history(telegram_id: int):
+    with connect() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            DELETE FROM ai_chat_messages
+            WHERE telegram_id = ?
+            """,
+            (telegram_id,)
+        )
+
+        connection.commit()
+
+
+def save_demonlist_update_event(summary: str):
+    with connect() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            INSERT INTO demonlist_update_events (summary)
+            VALUES (?)
+            """,
+            (summary,)
+        )
+
+        connection.commit()
+
+
+def get_recent_demonlist_update_events(limit: int = 5):
+    with connect() as connection:
+        cursor = connection.cursor()
+
+        cursor.execute(
+            """
+            SELECT summary, created_at
+            FROM demonlist_update_events
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,)
+        )
+
+        rows = cursor.fetchall()
+
+    return [
+        {
+            "summary": row[0],
+            "created_at": row[1]
+        }
+        for row in rows
+    ]

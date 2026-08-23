@@ -6,6 +6,7 @@ player_profile = KeyboardButton("👤 Player Profile")
 daily_challenge = KeyboardButton("🔥 Daily Challenge")
 complete_challenge = KeyboardButton("✅ Complete Challenge")
 points_button = KeyboardButton("💰 My Points")
+ai_agent = KeyboardButton("🤖 Start AI Chat")
 
 notifications_on = KeyboardButton("🔔 Enable Notifications")
 notifications_off = KeyboardButton("🔕 Disable Notifications")
@@ -16,7 +17,7 @@ panel = ReplyKeyboardMarkup(
     [
         [top10_levels, player_profile],
         [daily_challenge, complete_challenge],
-        [points_button],
+        [points_button, ai_agent],
         [notifications_on, notifications_off],
         [notification_status]
     ],

@@ -10,6 +10,7 @@ from pyrogram.errors import FloodWait, UserIsBlocked
 
 import keyboards
 import database
+import ai_agent
 
 from api import (
     get_top_demons,
@@ -104,6 +105,7 @@ bot = Client(
 
 
 waiting_for_profile = set()
+waiting_for_agent = set()
 
 
 def button_filter(button):
@@ -129,6 +131,200 @@ waiting_for_profile_input = filters.create(
     waiting_profile_filter,
     "WaitingForProfileInput"
 )
+
+
+async def waiting_agent_filter(_, __, message):
+    return (
+        message.from_user is not None
+        and message.from_user.id in waiting_for_agent
+        and message.text is not None
+    )
+
+
+waiting_for_agent_input = filters.create(
+    waiting_agent_filter,
+    "WaitingForAgentInput"
+)
+
+
+COMMANDS_THAT_SKIP_AGENT = [
+    "start",
+    "profile",
+    "top10_levels",
+    "daily",
+    "complete",
+    "points",
+    "cancel",
+    "notifications_on",
+    "notifications_off",
+    "notifications",
+    "agent",
+    "agent_stop",
+    "agent_reset"
+]
+
+PANEL_BUTTON_TEXTS = {
+    keyboards.top10_levels.text,
+    keyboards.player_profile.text,
+    keyboards.daily_challenge.text,
+    keyboards.complete_challenge.text,
+    keyboards.points_button.text,
+    keyboards.ai_agent.text,
+    keyboards.notifications_on.text,
+    keyboards.notifications_off.text,
+    keyboards.notification_status.text
+}
+
+
+async def panel_button_text_filter(_, __, message):
+    return message.text in PANEL_BUTTON_TEXTS
+
+
+panel_button_input = filters.create(
+    panel_button_text_filter,
+    "PanelButtonInput"
+)
+
+
+def get_player_display_name(value):
+    if isinstance(value, dict):
+        return value.get("name", "Unknown")
+
+    return value or "Unknown"
+
+
+def format_agent_update_summary(changes: list):
+    lines = []
+
+    for change in changes:
+        change_type = change["type"]
+        name = change["name"]
+
+        if change_type == "added":
+            lines.append(
+                f"{name} entered the Demonlist at #{change['new_position']}."
+            )
+        elif change_type == "removed":
+            lines.append(
+                f"{name} left the Demonlist from #{change['old_position']}."
+            )
+        elif change_type == "moved":
+            lines.append(
+                f"{name} moved from #{change['old_position']} "
+                f"to #{change['new_position']}."
+            )
+
+    return "\n".join(lines)
+
+
+async def build_agent_live_context():
+    lines = [
+        "The bot is connected to live Pointercrate data and local bot history."
+    ]
+
+    try:
+        demons = await get_top_demons(limit=10)
+
+        if demons:
+            lines.append("")
+            lines.append("Current Pointercrate Top 10:")
+
+            for demon in demons:
+                position = demon.get("position", "?")
+                name = demon.get("name", "Unknown")
+                verifier = get_player_display_name(demon.get("verifier"))
+                requirement = demon.get("requirement", "?")
+
+                lines.append(
+                    f"#{position}: {name} | verifier: {verifier} | "
+                    f"record requirement: {requirement}%"
+                )
+
+    except Exception as error:
+        logger.warning("Could not build Top 10 context for AI agent: %s", error)
+        lines.append("")
+        lines.append("Current Pointercrate Top 10 could not be loaded.")
+
+    recent_updates = database.get_recent_demonlist_update_events(limit=5)
+
+    lines.append("")
+    lines.append("Recently detected Demonlist updates:")
+
+    if recent_updates:
+        for update in recent_updates:
+            lines.append(f"- {update['created_at']}: {update['summary']}")
+    else:
+        lines.append("- No Demonlist update events have been detected yet.")
+
+    daily = database.get_daily_challenge()
+
+    if daily is not None:
+        lines.append("")
+        lines.append(
+            "Today's stored daily challenge: "
+            f"#{daily.get('position', '?')} - {daily.get('name', 'Unknown')}"
+        )
+
+    return "\n".join(lines)
+
+
+async def send_long_text(message, text: str):
+    max_length = 4000
+    remaining = text
+    first_message = True
+
+    while remaining:
+        chunk = remaining[:max_length]
+        remaining = remaining[max_length:]
+
+        if first_message:
+            await message.edit_text(chunk)
+            first_message = False
+        else:
+            await message.reply(chunk)
+
+
+async def answer_with_agent(message, user_text: str):
+    if message.from_user is None:
+        return
+
+    if not ai_agent.is_ai_configured():
+        await message.reply(
+            ai_agent.AI_CONFIGURATION_MESSAGE,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    telegram_id = message.from_user.id
+    loading_message = await message.reply("Thinking...")
+
+    try:
+        history = database.get_ai_chat_history(
+            telegram_id,
+            limit=ai_agent.MAX_AGENT_HISTORY_MESSAGES
+        )
+        live_context = await build_agent_live_context()
+
+        reply = await ai_agent.generate_agent_reply(
+            user_message=user_text,
+            chat_history=history,
+            live_context=live_context
+        )
+
+        database.add_ai_chat_message(telegram_id, "user", user_text)
+        database.add_ai_chat_message(telegram_id, "assistant", reply)
+
+        await send_long_text(loading_message, reply)
+
+    except Exception as error:
+        logger.exception("AI agent failed for user %s.", telegram_id)
+
+        await loading_message.edit_text(
+            "The AI agent could not answer right now.\n\n"
+            "Check that `MISTRAL_API_KEY` is valid, the selected `MISTRAL_MODEL` "
+            "is available to your account, and your Mistral AI account has API "
+            "access."
+        )
 
 
 async def send_profile(message, nickname: str):
@@ -389,6 +585,9 @@ async def check_demonlist_changes():
         return
 
     notification_text = format_demonlist_changes(changes)
+    database.save_demonlist_update_event(
+        format_agent_update_summary(changes)
+    )
 
     # Save before sending so the same change is not sent again
     # if Telegram delivery partially fails.
@@ -424,7 +623,8 @@ async def demonlist_monitor():
 async def start(client, message):
     await message.reply(
         "Welcome to GD Demon List!\n\n"
-        "Use the buttons below to view profiles, challenges, and the live Demonlist.",
+        "Use the buttons below to view profiles, challenges, the live Demonlist, "
+        "or chat with the AI agent.",
         reply_markup=keyboards.panel
     )
 
@@ -515,24 +715,24 @@ async def cancel_profile_search(client, message):
             reply_markup=keyboards.panel
         )
 
+    elif user_id in waiting_for_agent:
+        waiting_for_agent.discard(user_id)
+
+        await message.reply(
+            "AI chat mode closed. Your AI conversation history was kept.",
+            reply_markup=keyboards.panel
+        )
+
     else:
         await message.reply(
-            "You do not have an active profile search."
+            "You do not have an active profile search or AI chat."
         )
 
 
 @bot.on_message(
     filters.text
     & waiting_for_profile_input
-    & ~filters.command([
-        "start",
-        "profile",
-        "top10_levels",
-        "daily",
-        "complete",
-        "points",
-        "cancel"
-    ])
+    & ~filters.command(COMMANDS_THAT_SKIP_AGENT)
 )
 async def profile_nickname_handler(client, message):
     user_id = message.from_user.id
@@ -547,6 +747,86 @@ async def profile_nickname_handler(client, message):
         return
 
     await send_profile(message, nickname)
+
+
+@bot.on_message(filters.command("agent"))
+async def agent_command(client, message):
+    if message.from_user is None:
+        return
+
+    waiting_for_agent.add(message.from_user.id)
+
+    parts = message.text.split(maxsplit=1)
+
+    if len(parts) < 2 or not parts[1].strip():
+        await message.reply(
+            "AI chat mode is open. Ask me about Demonlist updates, "
+            "Geometry Dash players, levels, records, or the game in general.\n\n"
+            "Use `/agent_stop` to leave chat mode.\n"
+            "Use `/agent_reset` to clear your saved AI chat history.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    await answer_with_agent(message, parts[1].strip())
+
+
+@bot.on_message(button_filter(keyboards.ai_agent))
+async def agent_button(client, message):
+    if message.from_user is None:
+        return
+
+    waiting_for_agent.add(message.from_user.id)
+
+    await message.reply(
+        "AI chat mode is open. Send a question about the Demonlist, "
+        "recent updates, Geometry Dash levels, players, records, or gameplay.\n\n"
+        "Use `/agent_stop` to leave chat mode.\n"
+        "Use `/agent_reset` to clear your saved AI chat history.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
+@bot.on_message(filters.command("agent_stop"))
+async def agent_stop(client, message):
+    if message.from_user is None:
+        return
+
+    waiting_for_agent.discard(message.from_user.id)
+
+    await message.reply(
+        "AI chat mode closed. Your saved conversation history is still there.",
+        reply_markup=keyboards.panel
+    )
+
+
+@bot.on_message(filters.command("agent_reset"))
+async def agent_reset(client, message):
+    if message.from_user is None:
+        return
+
+    database.clear_ai_chat_history(message.from_user.id)
+
+    await message.reply(
+        "Your AI chat history has been cleared.",
+        reply_markup=keyboards.panel
+    )
+
+
+@bot.on_message(
+    filters.text
+    & waiting_for_agent_input
+    & ~filters.command(COMMANDS_THAT_SKIP_AGENT)
+    & ~panel_button_input
+)
+async def agent_message_handler(client, message):
+    user_text = message.text.strip()
+
+    if not user_text:
+        await message.reply("Send a question for the AI agent.")
+        return
+
+    await answer_with_agent(message, user_text)
 
 
 @bot.on_message(
