@@ -146,10 +146,9 @@ On startup, the app creates the required SQLite tables automatically in
 | `ai_agent.py` | Mistral-powered Geometry Dash AI agent logic. |
 | `database.py` | SQLite tables and persistence helpers for users, completions, daily challenges, notifications, and snapshots. |
 | `keyboards.py` | Telegram reply keyboard buttons and layout. |
-| `drafts.py` | Older draft code for static demon photo responses. |
+| `drafts.py` | Placeholder for removed legacy draft code. |
 | `.env.example` | Template for local environment configuration. |
 | `requirements.txt` | Pinned Python dependencies. |
-| `*.png` | Image assets used by older draft/static bot responses. |
 
 ## Data Files
 
