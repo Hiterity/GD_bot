@@ -121,28 +121,6 @@ Python packages are pinned in `requirements.txt`.
 On startup, the app creates the required SQLite tables automatically in
 `gd_bot.db`.
 
-## Deployment
-
-The project includes a `Procfile` for platforms that support worker processes:
-
-```Procfile
-worker: python main.py
-```
-
-Make sure the deployment environment provides `TELEGRAM_API_ID`,
-`TELEGRAM_API_HASH`, and `TELEGRAM_BOT_TOKEN` before starting the worker. For
-local development, the bot also loads these values from a `.env` file in the
-project root.
-
-Do not deploy `DemonList.session`, `DemonList.session-journal`, or local
-database files. They are runtime artifacts and are ignored by `.gitignore`.
-If Railway reports `AUTH_KEY_DUPLICATED`, delete any deployed session files,
-commit their removal, and redeploy so Pyrogram can create a fresh session from
-`TELEGRAM_BOT_TOKEN`.
-
-This bot runs Pyrogram with an in-memory bot session, which is safer for
-container platforms because it does not need to persist `DemonList.session`.
-
 ## Project Structure
 
 | File | Purpose |
@@ -154,7 +132,6 @@ container platforms because it does not need to persist `DemonList.session`.
 | `drafts.py` | Older draft code for static demon photo responses. |
 | `.env.example` | Template for local environment configuration. |
 | `requirements.txt` | Pinned Python dependencies. |
-| `Procfile` | Worker entrypoint for deployment platforms. |
 | `*.png` | Image assets used by older draft/static bot responses. |
 
 ## Data Files
@@ -163,8 +140,6 @@ The bot may create or update these local runtime files:
 
 - `gd_bot.db` - SQLite database for user points, daily challenges, completions,
   notification subscriptions, and Demonlist snapshots.
-- `DemonList.session` - Pyrogram session file.
-- `DemonList.session-journal` - SQLite journal file for the session.
 
 These files can contain local runtime state and should usually stay out of
 version control.
